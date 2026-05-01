@@ -1,0 +1,2020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cull — Photo Selector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0d0b;
+    --bg-elev: #16140f;
+    --ink: #f4ede0;
+    --ink-dim: #8a7f6b;
+    --ink-faint: #4a4337;
+    --accent: #e8d5a8;
+    --keep: #f5b945;
+    --reject: #5b9bd5;
+    --danger: #c84630;
+    --rule: #2a2620;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Fraunces', Georgia, serif;
+    font-feature-settings: "ss01", "ss02";
+    display: grid;
+    grid-template-rows: auto 1fr auto auto;
+    user-select: none;
+  }
+
+  /* ── Header ─────────────────────────── */
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    background: var(--bg-elev);
+  }
+  .brand {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-style: italic;
+  }
+  .brand::after {
+    content: "·";
+    margin: 0 10px;
+    color: var(--accent);
+    font-style: normal;
+  }
+  .tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .stat { display: flex; gap: 6px; align-items: baseline; }
+  .stat-num { color: var(--ink); font-size: 13px; font-weight: 500; }
+  .stat-num.keep { color: var(--keep); }
+  .stat-num.reject { color: var(--reject); }
+
+  /* ── Main viewer ────────────────────── */
+  main {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(232,213,168,0.04), transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(91,155,213,0.04), transparent 50%),
+      var(--bg);
+  }
+  .stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 80px;
+  }
+  .stage img {
+    object-fit: contain;
+  }
+  .stage.marked-keep::before,
+  .stage.marked-reject::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border: 3px solid;
+    box-sizing: border-box;
+  }
+  .stage.marked-keep::before { border-color: var(--keep); box-shadow: inset 0 0 80px rgba(245,185,69,0.18); }
+  .stage.marked-reject::before { border-color: var(--reject); box-shadow: inset 0 0 80px rgba(91,155,213,0.18); }
+
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border: 1px solid;
+    display: none;
+  }
+  .badge.keep { color: var(--keep); border-color: var(--keep); }
+  .badge.reject { color: var(--reject); border-color: var(--reject); }
+  .badge.show { display: inline-block; }
+
+  /* nav arrows */
+  .nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: 1px solid var(--ink-faint);
+    color: var(--ink-dim);
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .nav:hover { color: var(--ink); border-color: var(--ink-dim); }
+  .nav.prev { left: 18px; }
+  .nav.next { right: 18px; }
+
+  .filename {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Info panel (EXIF) ──────────────── */
+  .info-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 280px;
+    background: rgba(22, 20, 15, 0.94);
+    backdrop-filter: blur(12px);
+    border-left: 1px solid var(--rule);
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 5;
+    overflow-y: auto;
+    padding: 24px 22px;
+  }
+  .info-panel.show { transform: translateX(0); }
+  .info-panel h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    font-weight: 400;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 14px;
+  }
+  .info-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .info-value {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 16px;
+    color: var(--ink);
+    font-feature-settings: "tnum";
+  }
+  .info-value.mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .info-value a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+  }
+  .info-value a:hover { border-color: var(--accent); }
+  .info-empty {
+    font-family: 'Fraunces', Georgia, serif;
+    font-style: italic;
+    color: var(--ink-dim);
+    font-size: 14px;
+    padding: 20px 0;
+  }
+  .info-row-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .info-row-pair .info-row { margin-bottom: 0; }
+
+  /* When info panel is open, leave room for it on the right */
+  .stage.info-open { padding-right: 304px; }
+
+  /* ── Zoom container ─────────────────── */
+  .zoom-wrap {
+    position: relative;
+    display: flex;
+    max-width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    cursor: zoom-in;
+    transition: cursor 0.1s;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .zoom-wrap.zoomed { cursor: grab; }
+  .zoom-wrap.zoomed.panning { cursor: grabbing; }
+  .zoom-wrap img {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 200px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    transform-origin: 0 0;
+    will-change: transform;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .zoom-indicator {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(14,13,11,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 4px 10px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .zoom-indicator.show { opacity: 1; }
+
+  /* ── Empty state ────────────────────── */
+  .empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    padding: 40px;
+  }
+  .empty h1 {
+    font-size: clamp(48px, 8vw, 96px);
+    font-weight: 300;
+    letter-spacing: -0.04em;
+    line-height: 0.9;
+    text-align: center;
+  }
+  .empty h1 em {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 500;
+  }
+  .empty .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    max-width: 480px;
+    text-align: center;
+    line-height: 1.8;
+  }
+  .picker-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 14px 22px;
+    background: transparent;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .btn:hover { background: var(--ink); color: var(--bg); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .btn.primary:hover { background: var(--ink); border-color: var(--ink); }
+  .btn.danger { color: var(--danger); border-color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: var(--ink); }
+
+  /* ── Modal ──────────────────────────── */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    width: 480px;
+    max-width: 92vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-head {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .modal-head h2 {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--danger);
+    font-style: italic;
+  }
+  .modal-head .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-top: 6px;
+  }
+  .modal-body {
+    padding: 20px 24px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .modal-list {
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink);
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 18px;
+  }
+  .modal-list div {
+    padding: 2px 0;
+    color: var(--ink-dim);
+  }
+  .modal-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .modal-option:hover { border-color: var(--ink-dim); }
+  .modal-option input[type="checkbox"] {
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+  .modal-option .opt-text {
+    font-size: 13px;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .modal-option .opt-text .hint {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-dim);
+    margin-top: 4px;
+    letter-spacing: 0.05em;
+  }
+  .modal-foot {
+    padding: 16px 24px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  .modal-warn {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 13px;
+    color: var(--ink-dim);
+    font-style: italic;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+  .modal-warn strong { color: var(--ink); font-style: normal; font-weight: 500; }
+
+  /* ── Footer / controls ──────────────── */
+  footer {
+    border-top: 1px solid var(--rule);
+    background: var(--bg-elev);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    flex-wrap: wrap;
+  }
+  .keys {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .keybind {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    padding: 3px 8px;
+    color: var(--ink);
+    min-width: 24px;
+    text-align: center;
+  }
+  .footer-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .footer-actions .btn { padding: 8px 14px; font-size: 10px; }
+
+  /* Filter toggle */
+  .filter-toggle {
+    display: flex;
+    border: 1px solid var(--rule);
+    background: var(--bg);
+  }
+  .filter-toggle button {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    color: var(--ink-dim);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-right: 1px solid var(--rule);
+  }
+  .filter-toggle button:last-child { border-right: none; }
+  .filter-toggle button:hover { color: var(--ink); }
+  .filter-toggle button.active {
+    background: var(--keep);
+    color: var(--bg);
+  }
+  .filter-toggle button.all.active {
+    background: var(--ink);
+    color: var(--bg);
+  }
+  .filter-toggle button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* ── Filmstrip ──────────────────────── */
+  .filmstrip {
+    height: 72px;
+    display: flex;
+    gap: 4px;
+    padding: 8px 24px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-faint) transparent;
+    background: var(--bg-elev);
+    border-top: 1px solid var(--rule);
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .filmstrip.hidden { display: none; }
+  .filmstrip::-webkit-scrollbar { height: 4px; }
+  .filmstrip::-webkit-scrollbar-thumb { background: var(--ink-faint); }
+  .thumb {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    cursor: pointer;
+    position: relative;
+    border: 1px solid transparent;
+    overflow: hidden;
+    background: var(--bg-elev);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.55; transition: opacity 0.15s; }
+  .thumb:hover img { opacity: 0.85; }
+  .thumb.current { border-color: var(--accent); }
+  .thumb.current img { opacity: 1; }
+  .thumb.keep::after {
+    content: "P";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: var(--keep);
+    color: var(--bg);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .thumb.reject::after {
+    content: "X";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: var(--reject);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--bg-elev);
+    border: 1px solid var(--accent);
+    color: var(--ink);
+    padding: 12px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    opacity: 0;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Cull</div>
+  <div class="tag">Photo Selector</div>
+  <div class="header-right">
+    <div class="stat" id="folderStat" style="display:none;">
+      <span id="folderName">—</span>
+    </div>
+    <div class="filename" id="filename"></div>
+    <div class="badge keep" id="badgeKeep">Kept</div>
+    <div class="badge reject" id="badgeReject">Rejected</div>
+    <div class="stat"><span class="stat-num" id="curIdx">0</span><span>/</span><span id="totalCount">0</span></div>
+    <div class="stat"><span class="stat-num keep" id="keepCount">0</span><span>kept</span></div>
+    <div class="stat"><span class="stat-num reject" id="rejectCount">0</span><span>rejected</span></div>
+  </div>
+</header>
+
+<main>
+  <!-- Empty state -->
+  <div class="empty" id="emptyState">
+    <h1>Sift the <em>signal</em><br>from the noise.</h1>
+    <div class="sub">Open a folder of photos. Use arrow keys to move, P to keep, X to reject. When done, save your selection.</div>
+    <div class="picker-row">
+      <button class="btn primary" id="pickFolder">Open Folder</button>
+      <button class="btn" id="pickFiles">Pick Files</button>
+    </div>
+    <div class="sub" style="font-size:10px;opacity:0.7;">Folder mode (Chrome/Edge) writes selected.txt back to disk · File mode downloads it</div>
+  </div>
+
+  <!-- Viewer -->
+  <div class="stage" id="stage" style="display:none;">
+    <button class="nav prev" id="prevBtn">‹</button>
+    <button class="nav next" id="nextBtn">›</button>
+    <div class="zoom-wrap" id="zoomWrap">
+      <img id="mainImg" src="" alt="" draggable="false">
+      <div class="zoom-indicator" id="zoomIndicator">100%</div>
+    </div>
+    <aside class="info-panel" id="infoPanel">
+      <h3>Photo Info</h3>
+      <div id="infoBody"></div>
+    </aside>
+  </div>
+</main>
+
+<div class="filmstrip hidden" id="filmstrip"></div>
+
+<footer>
+  <div class="keys">
+    <div class="keybind"><kbd>←</kbd><kbd>→</kbd> navigate</div>
+    <div class="keybind"><kbd>P</kbd> keep</div>
+    <div class="keybind"><kbd>X</kbd> reject</div>
+    <div class="keybind"><kbd>U</kbd> unmark</div>
+    <div class="keybind"><kbd>K</kbd> kept only</div>
+    <div class="keybind"><kbd>I</kbd> info</div>
+    <div class="keybind"><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd> zoom</div>
+    <div class="keybind"><kbd>T</kbd> toggle strip</div>
+    <div class="keybind"><kbd>L</kbd> load</div>
+    <div class="keybind"><kbd>S</kbd> save</div>
+  </div>
+  <div class="footer-actions">
+    <div class="filter-toggle" id="filterToggle">
+      <button class="all active" data-filter="all" id="filterAll">All</button>
+      <button data-filter="keep" id="filterKeep">Kept</button>
+    </div>
+    <button class="btn" id="infoBtn" disabled>Info</button>
+    <button class="btn" id="copyBtn" disabled>Move Kept →</button>
+    <button class="btn danger" id="deleteBtn" disabled>Delete Rejected</button>
+    <button class="btn" id="loadBtn" disabled>Load Selection</button>
+    <button class="btn" id="saveBtn" disabled>Save Selection</button>
+    <button class="btn" id="resetBtn" disabled>Reset</button>
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<!-- Parent folder access explainer (shown before browser prompt) -->
+<div class="modal-backdrop" id="parentAccessModal" style="z-index: 300;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 style="color: var(--accent);">Locate the RAW folder</h2>
+      <div class="sub">One-time access</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-warn">
+        For security, browsers don't expose file paths, so the app can't find your <strong>RAW/</strong> folder on its own.
+      </div>
+      <div style="font-family: 'Fraunces', Georgia, serif; font-size: 14px; color: var(--ink); line-height: 1.6; margin-bottom: 16px;">
+        On the next screen, please select the <strong style="color: var(--accent);">parent folder</strong> — the one that contains <em>both</em> your current photo folder <span id="parentExampleCurrent" style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent);">—</span> <em>and</em> the sibling <strong style="color: var(--accent);">RAW/</strong> folder.
+      </div>
+      <div style="background: var(--bg); border: 1px solid var(--rule); padding: 14px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.7;">
+        <div style="color: var(--ink-dim); margin-bottom: 6px; letter-spacing: 0.1em; text-transform: uppercase; font-size: 9px;">Example</div>
+        <div style="color: var(--accent);">📁 2026-04-28/  ← pick this one</div>
+        <div style="color: var(--ink-dim); padding-left: 16px;">📁 <span id="parentExampleCurrent2">JPG</span>/  (current folder)</div>
+        <div style="color: var(--ink-dim); padding-left: 16px;">📁 RAW/</div>
+      </div>
+      <div style="font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 12px; color: var(--ink-dim); margin-top: 14px; line-height: 1.5;">
+        This permission is remembered for the rest of your session — you'll only be asked once.
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelParentBtn">Cancel</button>
+      <button class="btn primary" id="confirmParentBtn">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Move kept confirmation modal -->
+<div class="modal-backdrop" id="moveModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 style="color: var(--keep);">Move kept photos?</h2>
+      <div class="sub" id="moveCount">— files</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-warn">Files will be moved into a <strong>Selected/</strong> subfolder. Originals will be removed from the current folder.</div>
+      <div class="modal-list" id="moveList"></div>
+      <label class="modal-option">
+        <input type="checkbox" id="alsoMoveRaw">
+        <div class="opt-text">
+          Also move matching files from sibling <strong>RAW/</strong> into <strong>RAW/Selected/</strong>
+          <span class="hint" id="moveRawHint">e.g., photo.jpg → ../RAW/photo.{cr2,nef,arw,raf,dng,…}</span>
+        </div>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelMoveBtn">Cancel</button>
+      <button class="btn primary" id="confirmMoveBtn" style="background: var(--keep); border-color: var(--keep);">Move</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal-backdrop" id="deleteModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Delete rejected photos?</h2>
+      <div class="sub" id="deleteCount">— files</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-warn">This <strong>cannot be undone</strong>. Files are permanently removed from disk — they do not go to the Recycle Bin or Trash.</div>
+      <div class="modal-list" id="deleteList"></div>
+      <label class="modal-option">
+        <input type="checkbox" id="alsoDeleteRaw">
+        <div class="opt-text">
+          Also delete matching files from sibling <strong>RAW/</strong> folder
+          <span class="hint" id="rawHint">e.g., photo.jpg → ../RAW/photo.{cr2,nef,arw,raf,dng,…}</span>
+        </div>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelDeleteBtn">Cancel</button>
+      <button class="btn danger" id="confirmDeleteBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ─────────────────────────────
+  const state = {
+    photos: [],         // { name, url, file?, handle?, status: 'unmarked'|'keep'|'reject' }
+    idx: 0,             // index into photos[]
+    dirHandle: null,
+    folderName: null,
+    filter: 'all',      // 'all' | 'keep'
+  };
+
+  const IMG_RE = /\.(jpe?g|png|gif|webp|bmp|avif|tiff?|heic|heif)$/i;
+
+  // ── Elements ──────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage');
+  const empty = $('emptyState');
+  const mainImg = $('mainImg');
+  const filename = $('filename');
+  const filmstrip = $('filmstrip');
+  const badgeKeep = $('badgeKeep');
+  const badgeReject = $('badgeReject');
+  const toast = $('toast');
+  const infoPanel = $('infoPanel');
+  const infoBody = $('infoBody');
+  const zoomWrap = $('zoomWrap');
+  const zoomIndicator = $('zoomIndicator');
+
+  // ── Preload cache ─────────────────────
+  // Keep decoded Image objects warm for nearby photos so navigation feels instant.
+  const PRELOAD_RADIUS = 3;
+  const preloadCache = new Map(); // url -> Image
+  function preloadAround(centerIdx) {
+    const want = new Set();
+    for (let d = -PRELOAD_RADIUS; d <= PRELOAD_RADIUS; d++) {
+      const i = centerIdx + d;
+      if (i >= 0 && i < state.photos.length) want.add(state.photos[i].url);
+    }
+    // Evict anything outside the window
+    for (const url of preloadCache.keys()) {
+      if (!want.has(url)) preloadCache.delete(url);
+    }
+    // Warm up new ones
+    for (const url of want) {
+      if (!preloadCache.has(url)) {
+        const img = new Image();
+        img.src = url;
+        // decode() is the fast path: actually decodes pixels off-main-thread when possible
+        if (img.decode) img.decode().catch(() => {});
+        preloadCache.set(url, img);
+      }
+    }
+  }
+
+  // ── EXIF parser ───────────────────────
+  // Minimal JPEG EXIF extractor — reads only the tags we display.
+  // Returns an object with formatted strings, or null if no EXIF found.
+  async function readExif(file) {
+    if (!file || !file.type || !file.type.startsWith('image/jpeg')) return null;
+    try {
+      // Read just the first 256KB — EXIF lives near the start
+      const slice = file.slice(0, 256 * 1024);
+      const buf = await slice.arrayBuffer();
+      const dv = new DataView(buf);
+      if (dv.getUint16(0) !== 0xFFD8) return null; // not JPEG
+
+      // Walk segments to find APP1 (EXIF)
+      let offset = 2;
+      let exifStart = -1;
+      while (offset < dv.byteLength - 4) {
+        if (dv.getUint8(offset) !== 0xFF) break;
+        const marker = dv.getUint8(offset + 1);
+        const size = dv.getUint16(offset + 2);
+        if (marker === 0xE1) {
+          // Verify "Exif\0\0"
+          if (dv.getUint32(offset + 4) === 0x45786966 && dv.getUint16(offset + 8) === 0x0000) {
+            exifStart = offset + 10;
+            break;
+          }
+        }
+        if (marker === 0xDA) break; // start of scan, no more metadata
+        offset += 2 + size;
+      }
+      if (exifStart < 0) return null;
+
+      // TIFF header: byte order
+      const little = dv.getUint16(exifStart) === 0x4949;
+      const get16 = (o) => dv.getUint16(o, little);
+      const get32 = (o) => dv.getUint32(o, little);
+      if (get16(exifStart + 2) !== 0x002A) return null;
+
+      const tiffStart = exifStart;
+      const ifd0Offset = tiffStart + get32(exifStart + 4);
+
+      // Read each IFD into a tag map
+      function readIFD(start) {
+        const out = {};
+        const count = get16(start);
+        for (let i = 0; i < count; i++) {
+          const e = start + 2 + i * 12;
+          if (e + 12 > dv.byteLength) break;
+          const tag = get16(e);
+          const type = get16(e + 2);
+          const cnt = get32(e + 4);
+          out[tag] = { type, cnt, valOffset: e + 8 };
+        }
+        return out;
+      }
+
+      // Read a value given an entry, type, count
+      const TYPE_SIZE = { 1:1, 2:1, 3:2, 4:4, 5:8, 7:1, 9:4, 10:8 };
+      function readValue(entry) {
+        const { type, cnt, valOffset } = entry;
+        const size = (TYPE_SIZE[type] || 1) * cnt;
+        const dataStart = size > 4 ? tiffStart + get32(valOffset) : valOffset;
+        if (type === 2) { // ASCII
+          let s = '';
+          for (let i = 0; i < cnt; i++) {
+            const c = dv.getUint8(dataStart + i);
+            if (c === 0) break;
+            s += String.fromCharCode(c);
+          }
+          return s.trim();
+        }
+        if (type === 3) return get16(dataStart);
+        if (type === 4) return get32(dataStart);
+        if (type === 5) { // unsigned rational
+          const num = get32(dataStart);
+          const den = get32(dataStart + 4);
+          return den ? num / den : 0;
+        }
+        if (type === 10) { // signed rational
+          const num = dv.getInt32(dataStart, little);
+          const den = dv.getInt32(dataStart + 4, little);
+          return den ? num / den : 0;
+        }
+        if (type === 1 || type === 7) return dv.getUint8(dataStart);
+        return null;
+      }
+
+      const ifd0 = readIFD(ifd0Offset);
+
+      // Tag IDs we care about (decimal)
+      const result = {};
+      const make = ifd0[271] && readValue(ifd0[271]);
+      const model = ifd0[272] && readValue(ifd0[272]);
+      if (make || model) {
+        const m = (make || '').replace(/Corporation|Imaging|Company/i, '').trim();
+        result.camera = [m, model].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      }
+      if (ifd0[306]) result.dateTime = readValue(ifd0[306]);
+
+      // ExifIFD pointer
+      if (ifd0[34665]) {
+        const exifIfd = readIFD(tiffStart + readValue(ifd0[34665]));
+        if (exifIfd[33437]) { // FNumber
+          const v = readValue(exifIfd[33437]);
+          if (v) result.aperture = `f/${v.toFixed(v >= 10 ? 0 : 1)}`;
+        }
+        if (exifIfd[33434]) { // ExposureTime
+          const v = readValue(exifIfd[33434]);
+          if (v) result.shutter = v >= 1 ? `${v.toFixed(1)}s` : `1/${Math.round(1/v)}s`;
+        }
+        if (exifIfd[34855]) { // ISO
+          result.iso = `ISO ${readValue(exifIfd[34855])}`;
+        }
+        if (exifIfd[37386]) { // FocalLength
+          const v = readValue(exifIfd[37386]);
+          if (v) result.focalLength = `${Math.round(v)}mm`;
+        }
+        if (exifIfd[42036]) result.lens = readValue(exifIfd[42036]);
+        if (exifIfd[36867]) result.dateTime = readValue(exifIfd[36867]); // DateTimeOriginal
+        if (exifIfd[37384]) {
+          const wb = readValue(exifIfd[37384]);
+          // Not super useful alone, skip
+        }
+      }
+
+      // GPS IFD pointer
+      if (ifd0[34853]) {
+        const gpsIfd = readIFD(tiffStart + readValue(ifd0[34853]));
+        const dms = (entry) => {
+          const off = entry.valOffset;
+          const dataStart = tiffStart + get32(off);
+          const parts = [];
+          for (let i = 0; i < 3; i++) {
+            const num = get32(dataStart + i * 8);
+            const den = get32(dataStart + i * 8 + 4);
+            parts.push(den ? num / den : 0);
+          }
+          return parts[0] + parts[1] / 60 + parts[2] / 3600;
+        };
+        if (gpsIfd[2] && gpsIfd[1] && gpsIfd[4] && gpsIfd[3]) {
+          let lat = dms(gpsIfd[2]);
+          let lon = dms(gpsIfd[4]);
+          if (readValue(gpsIfd[1]) === 'S') lat = -lat;
+          if (readValue(gpsIfd[3]) === 'W') lon = -lon;
+          result.gps = { lat, lon };
+          result.gpsStr = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        }
+      }
+
+      return Object.keys(result).length ? result : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+
+  // Doing this once per photo avoids keeping N full-resolution decoded images in memory.
+  async function makeThumb(file, maxDim = 140) {
+    try {
+      // createImageBitmap is fast and respects EXIF orientation
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * scale));
+      const h = Math.max(1, Math.round(bmp.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close && bmp.close();
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.78));
+      return blob ? URL.createObjectURL(blob) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ── File loading ──────────────────────
+  $('pickFolder').addEventListener('click', async () => {
+    if (!('showDirectoryPicker' in window)) {
+      showToast('Folder mode unavailable — use Pick Files');
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      state.dirHandle = handle;
+      state.folderName = handle.name;
+      const photos = [];
+      for await (const entry of handle.values()) {
+        if (entry.kind === 'file' && IMG_RE.test(entry.name)) {
+          const file = await entry.getFile();
+          photos.push({
+            name: entry.name,
+            url: URL.createObjectURL(file),
+            file,
+            handle: entry,
+            status: 'unmarked',
+            thumbUrl: null,
+          });
+        }
+      }
+      photos.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      if (!photos.length) return showToast('No images found in folder');
+      state.photos = photos;
+      state.idx = 0;
+      enterViewer();
+      // If the folder already has a saved selection, restore it automatically
+      tryAutoLoadFromDir(handle);
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error(e);
+    }
+  });
+
+  $('pickFiles').addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.multiple = true;
+    inp.accept = 'image/*';
+    inp.onchange = () => {
+      const files = Array.from(inp.files || []).filter(f => IMG_RE.test(f.name) || f.type.startsWith('image/'));
+      if (!files.length) return;
+      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      state.photos = files.map(f => ({
+        name: f.name,
+        url: URL.createObjectURL(f),
+        file: f,
+        status: 'unmarked',
+        thumbUrl: null,
+      }));
+      state.idx = 0;
+      state.dirHandle = null;
+      state.folderName = null;
+      enterViewer();
+    };
+    inp.click();
+  });
+
+  // ── Viewer ────────────────────────────
+  function enterViewer() {
+    empty.style.display = 'none';
+    stage.style.display = 'flex';
+    filmstrip.classList.remove('hidden');
+    $('saveBtn').disabled = false;
+    $('resetBtn').disabled = false;
+    $('loadBtn').disabled = false;
+    $('infoBtn').disabled = false;
+    // Folder-mode-only actions
+    $('copyBtn').disabled = !state.dirHandle;
+    $('deleteBtn').disabled = !state.dirHandle;
+    if (state.folderName) {
+      $('folderStat').style.display = 'flex';
+      $('folderName').textContent = state.folderName;
+    } else {
+      $('folderStat').style.display = 'none';
+    }
+    buildFilmstrip();
+    render._lastUrl = null;
+    render();
+    preloadAround(state.idx);
+    generateThumbsInBackground();
+  }
+
+  // Generate small thumbnails sequentially in the background so the UI stays responsive.
+  // Prioritize thumbs near the current index first.
+  async function generateThumbsInBackground() {
+    const order = [];
+    const n = state.photos.length;
+    // Spiral outward from current index
+    for (let d = 0; d < n; d++) {
+      if (state.idx + d < n) order.push(state.idx + d);
+      if (d > 0 && state.idx - d >= 0) order.push(state.idx - d);
+    }
+    for (const i of order) {
+      const p = state.photos[i];
+      if (!p || p.thumbUrl || !p.file) continue;
+      const thumb = await makeThumb(p.file);
+      if (!thumb) continue;
+      p.thumbUrl = thumb;
+      const el = filmstrip.children[i];
+      if (el) {
+        const im = el.querySelector('img');
+        if (im) im.src = thumb;
+      }
+      // Yield to the main thread between thumbs
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  // Returns visible photo indices given current filter
+  function visibleIndices() {
+    if (state.filter === 'keep') {
+      return state.photos.map((p, i) => p.status === 'keep' ? i : -1).filter(i => i !== -1);
+    }
+    return state.photos.map((_, i) => i);
+  }
+
+  function render() {
+    if (!state.photos.length) return;
+    const vis = visibleIndices();
+    const keepCount = state.photos.filter(x => x.status === 'keep').length;
+    const rejectCount = state.photos.filter(x => x.status === 'reject').length;
+
+    // Update filter toggle availability
+    $('filterKeep').disabled = keepCount === 0;
+    if (state.filter === 'keep' && keepCount === 0) {
+      // Auto-fall back to all if filter becomes empty
+      state.filter = 'all';
+      $('filterAll').classList.add('active');
+      $('filterKeep').classList.remove('active');
+    }
+
+    // If current photo isn't in the visible set, snap to nearest visible
+    if (vis.length && !vis.includes(state.idx)) {
+      // Pick closest visible index
+      let nearest = vis[0];
+      let bestDist = Math.abs(vis[0] - state.idx);
+      for (const i of vis) {
+        const d = Math.abs(i - state.idx);
+        if (d < bestDist) { bestDist = d; nearest = i; }
+      }
+      state.idx = nearest;
+    }
+
+    const p = state.photos[state.idx];
+    mainImg.src = p.url;
+    filename.textContent = p.name;
+    stage.classList.toggle('marked-keep', p.status === 'keep');
+    stage.classList.toggle('marked-reject', p.status === 'reject');
+    badgeKeep.classList.toggle('show', p.status === 'keep');
+    badgeReject.classList.toggle('show', p.status === 'reject');
+
+    // Counter shows position within current view
+    const posInView = vis.indexOf(state.idx) + 1;
+    $('curIdx').textContent = posInView;
+    $('totalCount').textContent = vis.length;
+    $('keepCount').textContent = keepCount;
+    $('rejectCount').textContent = rejectCount;
+
+    // Photo-change side effects: reset zoom, refresh info panel
+    if (render._lastUrl !== p.url) {
+      render._lastUrl = p.url;
+      resetZoom();
+      updateInfoPanel();
+    }
+
+    // Filmstrip: show/hide thumbs based on filter, mark current
+    [...filmstrip.children].forEach((el, i) => {
+      const status = state.photos[i].status;
+      el.classList.toggle('current', i === state.idx);
+      el.classList.toggle('keep', status === 'keep');
+      el.classList.toggle('reject', status === 'reject');
+      el.style.display = (state.filter === 'keep' && status !== 'keep') ? 'none' : '';
+    });
+    const cur = filmstrip.children[state.idx];
+    if (cur && cur.style.display !== 'none') {
+      cur.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }
+
+  function buildFilmstrip() {
+    filmstrip.innerHTML = '';
+    state.photos.forEach((p, i) => {
+      const div = document.createElement('div');
+      div.className = 'thumb';
+      const im = document.createElement('img');
+      // Only set src if a thumb has already been generated; otherwise leave empty
+      // (the styled background acts as a placeholder until generateThumbs fills it in).
+      if (p.thumbUrl) im.src = p.thumbUrl;
+      im.loading = 'lazy';
+      im.decoding = 'async';
+      div.appendChild(im);
+      div.addEventListener('click', () => { state.idx = i; render(); preloadAround(i); });
+      filmstrip.appendChild(div);
+    });
+  }
+
+  function move(delta) {
+    if (!state.photos.length) return;
+    const vis = visibleIndices();
+    if (!vis.length) return;
+    const here = vis.indexOf(state.idx);
+    const nextPos = (here + delta + vis.length) % vis.length;
+    state.idx = vis[nextPos];
+    render();
+    preloadAround(state.idx);
+  }
+
+  function mark(status) {
+    if (!state.photos.length) return;
+    const p = state.photos[state.idx];
+    // Toggle off if already this status
+    p.status = (p.status === status) ? 'unmarked' : status;
+    render();
+  }
+
+  function setFilter(f) {
+    state.filter = f;
+    $('filterAll').classList.toggle('active', f === 'all');
+    $('filterKeep').classList.toggle('active', f === 'keep');
+    render();
+  }
+
+  $('filterAll').addEventListener('click', () => setFilter('all'));
+  $('filterKeep').addEventListener('click', () => {
+    if ($('filterKeep').disabled) return;
+    setFilter('keep');
+  });
+
+  $('prevBtn').addEventListener('click', () => move(-1));
+  $('nextBtn').addEventListener('click', () => move(1));
+
+  // ── Keyboard ──────────────────────────
+  document.addEventListener('keydown', (e) => {
+    if (!state.photos.length) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    // Zoom keys (handle before lowercase switch — these aren't letters)
+    if (e.key === '+' || e.key === '=') {
+      const r = mainImg.getBoundingClientRect();
+      zoomAt(1.25, r.left + r.width / 2, r.top + r.height / 2);
+      e.preventDefault(); return;
+    }
+    if (e.key === '-' || e.key === '_') {
+      const r = mainImg.getBoundingClientRect();
+      zoomAt(1 / 1.25, r.left + r.width / 2, r.top + r.height / 2);
+      e.preventDefault(); return;
+    }
+    if (e.key === '0') {
+      resetZoom();
+      showZoomIndicator();
+      e.preventDefault(); return;
+    }
+    switch (e.key.toLowerCase()) {
+      case 'arrowleft': move(-1); e.preventDefault(); break;
+      case 'arrowright': move(1); e.preventDefault(); break;
+      case 'p': mark('keep'); e.preventDefault(); break;
+      case 'x': mark('reject'); e.preventDefault(); break;
+      case 'u': state.photos[state.idx].status = 'unmarked'; render(); e.preventDefault(); break;
+      case 'k':
+        if (state.filter === 'keep') setFilter('all');
+        else if (!$('filterKeep').disabled) setFilter('keep');
+        e.preventDefault();
+        break;
+      case 't':
+        filmstrip.classList.toggle('hidden');
+        e.preventDefault();
+        break;
+      case 'i': toggleInfoPanel(); e.preventDefault(); break;
+      case 'l': pickAndLoadSelection(); e.preventDefault(); break;
+      case 's': saveSelection(); e.preventDefault(); break;
+    }
+  });
+
+  // ── Save ──────────────────────────────
+  async function saveSelection() {
+    if (!state.photos.length) return;
+    const kept = state.photos.filter(p => p.status === 'keep').map(p => p.name);
+    const rejected = state.photos.filter(p => p.status === 'reject').map(p => p.name);
+
+    const lines = [];
+    lines.push(`# Cull selection — ${new Date().toISOString()}`);
+    if (state.folderName) lines.push(`# Folder: ${state.folderName}`);
+    lines.push(`# Total: ${state.photos.length} · Kept: ${kept.length} · Rejected: ${rejected.length}`);
+    lines.push('');
+    lines.push('[KEEP]');
+    kept.forEach(n => lines.push(n));
+    lines.push('');
+    lines.push('[REJECT]');
+    rejected.forEach(n => lines.push(n));
+    lines.push('');
+    const content = lines.join('\n');
+
+    if (state.dirHandle) {
+      try {
+        const fileHandle = await state.dirHandle.getFileHandle('selected.txt', { create: true });
+        const w = await fileHandle.createWritable();
+        await w.write(content);
+        await w.close();
+        showToast(`Saved selected.txt to ${state.folderName}`);
+        return;
+      } catch (e) {
+        console.error(e);
+        showToast('Write failed — downloading instead');
+      }
+    }
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'selected.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded selected.txt');
+  }
+
+  $('saveBtn').addEventListener('click', saveSelection);
+
+  // ── Load selection ────────────────────
+  // Parses the format saveSelection() writes: comment lines start with #,
+  // section headers are [KEEP] / [REJECT], everything else is a filename.
+  function parseSelectionFile(text) {
+    const keep = new Set();
+    const reject = new Set();
+    let section = null;
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const header = line.match(/^\[(KEEP|REJECT)\]$/i);
+      if (header) { section = header[1].toUpperCase(); continue; }
+      if (section === 'KEEP') keep.add(line);
+      else if (section === 'REJECT') reject.add(line);
+    }
+    return { keep, reject };
+  }
+
+  // Apply parsed selection to current photos. Returns counts for the toast.
+  function applySelection({ keep, reject }) {
+    let matched = 0, missing = 0;
+    const present = new Set(state.photos.map(p => p.name));
+    state.photos.forEach(p => {
+      if (keep.has(p.name)) { p.status = 'keep'; matched++; }
+      else if (reject.has(p.name)) { p.status = 'reject'; matched++; }
+    });
+    // Filenames in the file that don't match any loaded photo
+    for (const name of [...keep, ...reject]) {
+      if (!present.has(name)) missing++;
+    }
+    render();
+    return { matched, missing, total: keep.size + reject.size };
+  }
+
+  async function loadSelectionFromFile(file) {
+    try {
+      const text = await file.text();
+      const parsed = parseSelectionFile(text);
+      const { matched, missing, total } = applySelection(parsed);
+      if (total === 0) {
+        showToast('No selections found in file');
+      } else if (missing > 0) {
+        showToast(`Loaded ${matched} of ${total} (${missing} not in folder)`);
+      } else {
+        showToast(`Loaded ${matched} selections`);
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Could not read selection file');
+    }
+  }
+
+  function pickAndLoadSelection() {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.txt,text/plain';
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      if (f) loadSelectionFromFile(f);
+    };
+    inp.click();
+  }
+
+  $('loadBtn').addEventListener('click', pickAndLoadSelection);
+
+  // Try to auto-load selected.txt from a directory handle (folder mode only).
+  // Silently does nothing if the file doesn't exist.
+  async function tryAutoLoadFromDir(dirHandle) {
+    try {
+      const fileHandle = await dirHandle.getFileHandle('selected.txt');
+      const file = await fileHandle.getFile();
+      await loadSelectionFromFile(file);
+    } catch (e) {
+      // NotFoundError is expected when there's no prior selection — stay quiet
+    }
+  }
+
+  $('resetBtn').addEventListener('click', () => {
+    if (!confirm('Clear all selections?')) return;
+    state.photos.forEach(p => p.status = 'unmarked');
+    render();
+  });
+
+  // ── Info panel (EXIF) ─────────────────
+  // Cache parsed EXIF per photo (by URL — same for the lifetime of the session)
+  const exifCache = new Map();
+
+  async function getExif(photo) {
+    if (exifCache.has(photo.url)) return exifCache.get(photo.url);
+    const data = photo.file ? await readExif(photo.file) : null;
+    exifCache.set(photo.url, data);
+    return data;
+  }
+
+  function renderInfoRow(label, value, opts = {}) {
+    const v = opts.html ? value : escapeHtml(value);
+    const cls = opts.mono ? 'info-value mono' : 'info-value';
+    return `<div class="info-row"><div class="info-label">${label}</div><div class="${cls}">${v}</div></div>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function updateInfoPanel() {
+    if (!infoPanel.classList.contains('show')) return;
+    if (!state.photos.length) { infoBody.innerHTML = ''; return; }
+    const p = state.photos[state.idx];
+    infoBody.innerHTML = '<div class="info-empty">Reading…</div>';
+    const exif = await getExif(p);
+    // If user navigated away while we were reading, bail
+    if (state.photos[state.idx] !== p) return;
+    if (!exif) {
+      infoBody.innerHTML = '<div class="info-empty">No metadata available for this photo.</div>';
+      return;
+    }
+    let html = '';
+    // Exposure triangle on one row
+    const triplet = [];
+    if (exif.shutter) triplet.push({ label: 'Shutter', value: exif.shutter });
+    if (exif.aperture) triplet.push({ label: 'Aperture', value: exif.aperture });
+    if (exif.iso) triplet.push({ label: 'ISO', value: exif.iso.replace('ISO ', '') });
+    if (triplet.length === 3) {
+      html += '<div class="info-row-pair" style="grid-template-columns:1fr 1fr 1fr;">';
+      triplet.forEach(t => {
+        html += `<div class="info-row"><div class="info-label">${t.label}</div><div class="info-value">${escapeHtml(t.value)}</div></div>`;
+      });
+      html += '</div>';
+    } else {
+      if (exif.shutter) html += renderInfoRow('Shutter', exif.shutter);
+      if (exif.aperture) html += renderInfoRow('Aperture', exif.aperture);
+      if (exif.iso) html += renderInfoRow('ISO', exif.iso.replace('ISO ', ''));
+    }
+    if (exif.focalLength) html += renderInfoRow('Focal Length', exif.focalLength);
+    if (exif.camera) html += renderInfoRow('Camera', exif.camera);
+    if (exif.lens) html += renderInfoRow('Lens', exif.lens, { mono: true });
+    if (exif.dateTime) html += renderInfoRow('Captured', exif.dateTime, { mono: true });
+    if (exif.gps) {
+      const mapsUrl = `https://www.openstreetmap.org/?mlat=${exif.gps.lat}&mlon=${exif.gps.lon}#map=15/${exif.gps.lat}/${exif.gps.lon}`;
+      html += `<div class="info-row"><div class="info-label">Location</div><div class="info-value mono"><a href="${mapsUrl}" target="_blank" rel="noopener">${escapeHtml(exif.gpsStr)}</a></div></div>`;
+    }
+    infoBody.innerHTML = html;
+  }
+
+  function toggleInfoPanel(force) {
+    const show = force === undefined ? !infoPanel.classList.contains('show') : force;
+    infoPanel.classList.toggle('show', show);
+    stage.classList.toggle('info-open', show);
+    $('infoBtn').classList.toggle('primary', show);
+    if (show) updateInfoPanel();
+  }
+
+  $('infoBtn').addEventListener('click', () => toggleInfoPanel());
+
+  // ── Copy Kept to subfolder ────────────
+  // ── Shared: RAW pairing & parent folder access ──
+  // RAW formats we'll look for in sibling RAW/ folder. Order doesn't matter — we try them all.
+  const RAW_EXTS = ['cr2', 'cr3', 'nef', 'nrw', 'arw', 'srf', 'sr2', 'raf', 'rw2', 'orf', 'pef', 'dng', 'rwl', '3fr', 'fff', 'iiq', 'mef', 'mos', 'mrw', 'srw', 'x3f'];
+
+  // Cache of the parent directory handle, if user has granted access for RAW operations
+  let parentDirHandle = null;
+
+  function basename(name) {
+    const dot = name.lastIndexOf('.');
+    return dot < 0 ? name : name.slice(0, dot);
+  }
+
+  // Prompt user to grant access to the parent folder (containing both the current folder
+  // and the sibling RAW/), so we can locate the RAW directory. Browser security prevents
+  // us from pre-filling or auto-detecting this.
+  async function ensureParentHandle() {
+    if (parentDirHandle) return parentDirHandle;
+    if (!('showDirectoryPicker' in window)) return null;
+
+    // Show our own explainer first, since the browser's directory picker has a generic
+    // "save where?" prompt that doesn't communicate what we're actually doing.
+    const proceed = await showParentAccessExplainer();
+    if (!proceed) return null;
+
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      // Verify the chosen folder actually contains the current folder as a child
+      let foundCurrent = false;
+      for await (const entry of handle.values()) {
+        if (entry.kind === 'directory' && entry.name === state.folderName) {
+          if (entry.isSameEntry && state.dirHandle.isSameEntry) {
+            foundCurrent = await entry.isSameEntry(state.dirHandle);
+          } else {
+            foundCurrent = true;
+          }
+          break;
+        }
+      }
+      if (!foundCurrent) {
+        showToast(`That folder doesn't contain "${state.folderName}"`);
+        return null;
+      }
+      parentDirHandle = handle;
+      return handle;
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error(e);
+      return null;
+    }
+  }
+
+  // Show the explainer modal, return a Promise<boolean> resolving to user's choice
+  function showParentAccessExplainer() {
+    return new Promise((resolve) => {
+      const modal = $('parentAccessModal');
+      // Personalize the example with the actual current folder name
+      const name = state.folderName || 'JPG';
+      $('parentExampleCurrent').textContent = name + '/';
+      $('parentExampleCurrent2').textContent = name;
+      modal.classList.add('show');
+
+      const cleanup = () => {
+        modal.classList.remove('show');
+        $('confirmParentBtn').removeEventListener('click', onConfirm);
+        $('cancelParentBtn').removeEventListener('click', onCancel);
+        modal.removeEventListener('click', onBackdrop);
+      };
+      const onConfirm = () => { cleanup(); resolve(true); };
+      const onCancel = () => { cleanup(); resolve(false); };
+      const onBackdrop = (e) => { if (e.target.id === 'parentAccessModal') onCancel(); };
+
+      $('confirmParentBtn').addEventListener('click', onConfirm);
+      $('cancelParentBtn').addEventListener('click', onCancel);
+      modal.addEventListener('click', onBackdrop);
+    });
+  }
+
+  // Find the sibling RAW/ directory handle, if it exists
+  async function getRawSiblingHandle() {
+    const parent = await ensureParentHandle();
+    if (!parent) return null;
+    for await (const entry of parent.values()) {
+      if (entry.kind === 'directory' && entry.name.toLowerCase() === 'raw') {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  // ── Move kept to subfolder ────────────
+  // Helper: find a RAW file matching the basename in a directory. Returns
+  // { handle, name } or null. Tries every RAW extension in lower and upper case.
+  async function findRawMatch(rawDir, jpgName) {
+    const base = basename(jpgName);
+    for (const ext of RAW_EXTS) {
+      for (const variant of [ext, ext.toUpperCase()]) {
+        const rawName = `${base}.${variant}`;
+        try {
+          const handle = await rawDir.getFileHandle(rawName);
+          return { handle, name: rawName };
+        } catch (e) {
+          // NotFoundError expected for non-matches, keep trying
+        }
+      }
+    }
+    return null;
+  }
+
+  // Helper: move one file from sourceDir into destDir under the same name.
+  // Returns 'moved' | 'exists' | 'failed'. 'exists' means destination already
+  // had a file by that name; we leave the source alone.
+  async function moveFile(sourceFile, sourceDir, sourceName, destDir) {
+    // Check destination first
+    try {
+      await destDir.getFileHandle(sourceName);
+      return 'exists';
+    } catch (e) { /* not found, proceed */ }
+    // Copy
+    try {
+      const newHandle = await destDir.getFileHandle(sourceName, { create: true });
+      const writable = await newHandle.createWritable();
+      await writable.write(sourceFile);
+      await writable.close();
+    } catch (e) {
+      console.error('Move (copy phase) failed:', sourceName, e);
+      return 'failed';
+    }
+    // Delete source — only after successful copy
+    try {
+      await sourceDir.removeEntry(sourceName);
+    } catch (e) {
+      console.error('Move (delete source) failed:', sourceName, e);
+      // The copy succeeded but delete didn't. We have a duplicate, not data loss.
+      return 'failed';
+    }
+    return 'moved';
+  }
+
+  function openMoveModal() {
+    if (!state.dirHandle) {
+      showToast('Move requires Folder mode (Chrome/Edge)');
+      return;
+    }
+    const kept = state.photos.filter(p => p.status === 'keep');
+    if (!kept.length) {
+      showToast('No photos marked Keep');
+      return;
+    }
+    $('moveCount').textContent = `${kept.length} file${kept.length === 1 ? '' : 's'}`;
+    $('moveList').innerHTML = kept.map(p => `<div>${escapeHtml(p.name)}</div>`).join('');
+    $('alsoMoveRaw').checked = false;
+    const hint = $('moveRawHint');
+    if (parentDirHandle) {
+      hint.textContent = 'Parent folder access already granted ✓';
+    } else {
+      hint.textContent = "You'll be prompted to grant access to the parent folder";
+    }
+    $('moveModal').classList.add('show');
+  }
+
+  function closeMoveModal() {
+    $('moveModal').classList.remove('show');
+  }
+
+  async function performMove() {
+    const kept = state.photos.filter(p => p.status === 'keep');
+    if (!kept.length) { closeMoveModal(); return; }
+
+    const alsoRaw = $('alsoMoveRaw').checked;
+    let rawDir = null, rawDest = null;
+    if (alsoRaw) {
+      // Briefly hide the move modal so the explainer (and the browser's directory
+      // picker that follows) aren't visually stacked behind it.
+      $('moveModal').classList.remove('show');
+      rawDir = await getRawSiblingHandle();
+      if (!rawDir) {
+        // User cancelled or picked the wrong folder. Re-show the move modal so
+        // they can adjust their choice or cancel.
+        $('moveModal').classList.add('show');
+        return;
+      }
+      try {
+        rawDest = await rawDir.getDirectoryHandle('Selected', { create: true });
+      } catch (e) {
+        console.error(e);
+        showToast('Could not create RAW/Selected folder');
+        $('moveModal').classList.add('show');
+        return;
+      }
+      // Restore the modal so the user sees progress text on the Move button
+      $('moveModal').classList.add('show');
+    }
+
+    const btn = $('confirmMoveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Moving…';
+
+    let moved = 0, skipped = 0, failed = 0;
+    let rawMoved = 0, rawSkipped = 0, rawMissing = 0, rawFailed = 0;
+    const movedNames = new Set();
+
+    let dest;
+    try {
+      dest = await state.dirHandle.getDirectoryHandle('Selected', { create: true });
+    } catch (e) {
+      console.error(e);
+      showToast('Could not create Selected folder');
+      btn.disabled = false;
+      btn.textContent = 'Move';
+      return;
+    }
+
+    for (let i = 0; i < kept.length; i++) {
+      const p = kept[i];
+      btn.textContent = `Moving ${i + 1}/${kept.length}…`;
+
+      const result = await moveFile(p.file, state.dirHandle, p.name, dest);
+      if (result === 'moved') {
+        moved++;
+        movedNames.add(p.name);
+      } else if (result === 'exists') {
+        skipped++;
+        continue; // don't touch RAW if we didn't actually move the JPG
+      } else {
+        failed++;
+        continue;
+      }
+
+      // Move matching RAW file, if requested
+      if (alsoRaw && rawDir && rawDest) {
+        const match = await findRawMatch(rawDir, p.name);
+        if (!match) { rawMissing++; continue; }
+        // Read the RAW file so we can write it to the destination
+        let rawFile;
+        try {
+          rawFile = await match.handle.getFile();
+        } catch (e) {
+          console.error('Could not read RAW:', match.name, e);
+          rawFailed++;
+          continue;
+        }
+        const r = await moveFile(rawFile, rawDir, match.name, rawDest);
+        if (r === 'moved') rawMoved++;
+        else if (r === 'exists') rawSkipped++;
+        else rawFailed++;
+      }
+    }
+
+    // Update app state — remove successfully-moved photos
+    state.photos = state.photos.filter(p => {
+      if (movedNames.has(p.name)) {
+        if (p.url) URL.revokeObjectURL(p.url);
+        if (p.thumbUrl) URL.revokeObjectURL(p.thumbUrl);
+        exifCache.delete(p.url);
+        preloadCache.delete(p.url);
+        return false;
+      }
+      return true;
+    });
+    if (state.idx >= state.photos.length) state.idx = Math.max(0, state.photos.length - 1);
+
+    buildFilmstrip();
+    render._lastUrl = null;
+    if (state.photos.length) {
+      render();
+    } else {
+      stage.style.display = 'none';
+      filmstrip.classList.add('hidden');
+      empty.style.display = 'flex';
+      ['saveBtn','resetBtn','loadBtn','infoBtn','copyBtn','deleteBtn'].forEach(id => $(id).disabled = true);
+    }
+
+    // Build toast
+    const parts = [];
+    if (moved) parts.push(`${moved} moved`);
+    if (skipped) parts.push(`${skipped} already in Selected/`);
+    if (failed) parts.push(`${failed} failed`);
+    if (alsoRaw) {
+      const rawParts = [];
+      if (rawMoved) rawParts.push(`${rawMoved} RAW`);
+      if (rawSkipped) rawParts.push(`${rawSkipped} RAW already moved`);
+      if (rawMissing) rawParts.push(`${rawMissing} no RAW`);
+      if (rawFailed) rawParts.push(`${rawFailed} RAW failed`);
+      if (rawParts.length) parts.push(`(${rawParts.join(', ')})`);
+    }
+    showToast(`→ Selected/  ${parts.join(' · ')}`);
+
+    btn.disabled = false;
+    btn.textContent = 'Move';
+    closeMoveModal();
+  }
+
+  $('copyBtn').addEventListener('click', openMoveModal);
+  $('cancelMoveBtn').addEventListener('click', closeMoveModal);
+  $('confirmMoveBtn').addEventListener('click', performMove);
+  $('moveModal').addEventListener('click', (e) => {
+    if (e.target.id === 'moveModal') closeMoveModal();
+  });
+
+  // ── Delete rejected ───────────────────
+  function openDeleteModal() {
+    if (!state.dirHandle) {
+      showToast('Delete requires Folder mode (Chrome/Edge)');
+      return;
+    }
+    const rejected = state.photos.filter(p => p.status === 'reject');
+    if (!rejected.length) {
+      showToast('No photos marked Reject');
+      return;
+    }
+    $('deleteCount').textContent = `${rejected.length} file${rejected.length === 1 ? '' : 's'}`;
+    const listEl = $('deleteList');
+    listEl.innerHTML = rejected.map(p => `<div>${escapeHtml(p.name)}</div>`).join('');
+    $('alsoDeleteRaw').checked = false;
+    // Update hint based on whether we already have parent access
+    const hint = $('rawHint');
+    if (parentDirHandle) {
+      hint.textContent = 'Parent folder access already granted ✓';
+    } else {
+      hint.textContent = "You'll be prompted to grant access to the parent folder";
+    }
+    $('deleteModal').classList.add('show');
+  }
+
+  function closeDeleteModal() {
+    $('deleteModal').classList.remove('show');
+  }
+
+  async function performDelete() {
+    const rejected = state.photos.filter(p => p.status === 'reject');
+    if (!rejected.length) { closeDeleteModal(); return; }
+
+    const alsoRaw = $('alsoDeleteRaw').checked;
+    let rawDir = null;
+    if (alsoRaw) {
+      // Need access to the sibling RAW folder. Prompt for parent if we don't already have it.
+      // Hide our modal first so the explainer + browser picker aren't stacked behind it.
+      $('deleteModal').classList.remove('show');
+      rawDir = await getRawSiblingHandle();
+      if (!rawDir) {
+        // User cancelled or picked the wrong folder — restore the modal so they can retry.
+        $('deleteModal').classList.add('show');
+        return;
+      }
+      $('deleteModal').classList.add('show');
+    }
+
+    const btn = $('confirmDeleteBtn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+
+    let jpgDeleted = 0, jpgFailed = 0;
+    let rawDeleted = 0, rawMissing = 0, rawFailed = 0;
+    const successfullyDeleted = new Set();
+
+    for (const p of rejected) {
+      // Delete from current folder
+      try {
+        await state.dirHandle.removeEntry(p.name);
+        jpgDeleted++;
+        successfullyDeleted.add(p.name);
+      } catch (e) {
+        console.error('Delete failed:', p.name, e);
+        jpgFailed++;
+        continue; // If we couldn't delete the JPG, don't try the RAW either
+      }
+
+      // Delete matching RAW file(s) — same basename, any RAW extension
+      if (rawDir) {
+        const base = basename(p.name);
+        let foundRaw = false;
+        for (const ext of RAW_EXTS) {
+          for (const variant of [ext, ext.toUpperCase()]) {
+            const rawName = `${base}.${variant}`;
+            try {
+              await rawDir.removeEntry(rawName);
+              rawDeleted++;
+              foundRaw = true;
+              break;
+            } catch (e) {
+              if (e.name !== 'NotFoundError') {
+                console.error('RAW delete failed:', rawName, e);
+                rawFailed++;
+              }
+              // NotFoundError is expected for extensions that don't match — keep trying
+            }
+          }
+          if (foundRaw) break;
+        }
+        if (!foundRaw) rawMissing++;
+      }
+    }
+
+    // Remove successfully-deleted photos from app state, plus revoke their object URLs
+    state.photos = state.photos.filter(p => {
+      if (successfullyDeleted.has(p.name)) {
+        if (p.url) URL.revokeObjectURL(p.url);
+        if (p.thumbUrl) URL.revokeObjectURL(p.thumbUrl);
+        exifCache.delete(p.url);
+        preloadCache.delete(p.url);
+        return false;
+      }
+      return true;
+    });
+    // Adjust idx if it now points past the end
+    if (state.idx >= state.photos.length) state.idx = Math.max(0, state.photos.length - 1);
+
+    // Rebuild filmstrip from the new photo list
+    buildFilmstrip();
+    render._lastUrl = null;
+    if (state.photos.length) {
+      render();
+    } else {
+      // All photos gone — back to empty state
+      stage.style.display = 'none';
+      filmstrip.classList.add('hidden');
+      empty.style.display = 'flex';
+      ['saveBtn','resetBtn','loadBtn','infoBtn','copyBtn','deleteBtn'].forEach(id => $(id).disabled = true);
+    }
+
+    // Build status message
+    const parts = [`${jpgDeleted} deleted`];
+    if (jpgFailed) parts.push(`${jpgFailed} failed`);
+    if (alsoRaw) {
+      const rawParts = [];
+      if (rawDeleted) rawParts.push(`${rawDeleted} RAW`);
+      if (rawMissing) rawParts.push(`${rawMissing} no RAW`);
+      if (rawFailed) rawParts.push(`${rawFailed} RAW failed`);
+      if (rawParts.length) parts.push(`(${rawParts.join(', ')})`);
+    }
+    showToast(parts.join(' · '));
+
+    btn.disabled = false;
+    btn.textContent = 'Delete';
+    closeDeleteModal();
+  }
+
+  $('deleteBtn').addEventListener('click', openDeleteModal);
+  $('cancelDeleteBtn').addEventListener('click', closeDeleteModal);
+  $('confirmDeleteBtn').addEventListener('click', performDelete);
+
+  // Close modal on backdrop click or Esc
+  $('deleteModal').addEventListener('click', (e) => {
+    if (e.target.id === 'deleteModal') closeDeleteModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if ($('deleteModal').classList.contains('show')) closeDeleteModal();
+      if ($('moveModal').classList.contains('show')) closeMoveModal();
+      if ($('parentAccessModal').classList.contains('show')) $('cancelParentBtn').click();
+    }
+  });
+
+  // ── Zoom & pan ────────────────────────
+  // Zoom state — reset on every photo change. translate is in CSS pixels.
+  const zoom = { scale: 1, tx: 0, ty: 0, dragging: false, dragStartX: 0, dragStartY: 0, startTx: 0, startTy: 0 };
+  let zoomIndTimer = null;
+
+  function applyZoom() {
+    mainImg.style.transform = `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.scale})`;
+    zoomWrap.classList.toggle('zoomed', zoom.scale > 1);
+    if (zoom.scale === 1) zoomIndicator.classList.remove('show');
+  }
+
+  function resetZoom() {
+    zoom.scale = 1; zoom.tx = 0; zoom.ty = 0;
+    applyZoom();
+  }
+
+  // Constrain pan so image edges don't drift past the viewport
+  function clampPan() {
+    if (zoom.scale <= 1) { zoom.tx = 0; zoom.ty = 0; return; }
+    const wrap = zoomWrap.getBoundingClientRect();
+    const imgW = mainImg.clientWidth * zoom.scale;
+    const imgH = mainImg.clientHeight * zoom.scale;
+    // Allow the image to move so any edge can reach the center
+    const maxX = Math.max(0, (imgW - wrap.width));
+    const maxY = Math.max(0, (imgH - wrap.height));
+    // Centered base offset (since transform-origin is 0,0 we account for centering manually via flex)
+    zoom.tx = Math.max(-maxX, Math.min(0, zoom.tx));
+    zoom.ty = Math.max(-maxY, Math.min(0, zoom.ty));
+  }
+
+  function zoomAt(factor, clientX, clientY) {
+    const oldScale = zoom.scale;
+    const newScale = Math.max(1, Math.min(8, oldScale * factor));
+    if (newScale === oldScale) return;
+    // Zoom relative to cursor: keep the point under the cursor stationary
+    const rect = mainImg.getBoundingClientRect();
+    const px = (clientX - rect.left);
+    const py = (clientY - rect.top);
+    // Convert from current-scale screen coords to image-space
+    const ix = px / oldScale;
+    const iy = py / oldScale;
+    zoom.scale = newScale;
+    // After scale change, the same image-point should land under the cursor
+    zoom.tx += (ix - ix * (newScale / oldScale)) * oldScale;
+    zoom.ty += (iy - iy * (newScale / oldScale)) * oldScale;
+    clampPan();
+    applyZoom();
+    showZoomIndicator();
+  }
+
+  function showZoomIndicator() {
+    zoomIndicator.textContent = `${Math.round(zoom.scale * 100)}%`;
+    zoomIndicator.classList.add('show');
+    clearTimeout(zoomIndTimer);
+    if (zoom.scale === 1) {
+      zoomIndTimer = setTimeout(() => zoomIndicator.classList.remove('show'), 600);
+    } else {
+      zoomIndTimer = setTimeout(() => zoomIndicator.classList.remove('show'), 1500);
+    }
+  }
+
+  // Wheel zoom
+  zoomWrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoomAt(factor, e.clientX, e.clientY);
+  }, { passive: false });
+
+  // Click to zoom in (if not zoomed); when zoomed, click+drag pans
+  zoomWrap.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (zoom.scale === 1) return; // not zoomed → let click do nothing special
+    zoom.dragging = true;
+    zoomWrap.classList.add('panning');
+    zoom.dragStartX = e.clientX;
+    zoom.dragStartY = e.clientY;
+    zoom.startTx = zoom.tx;
+    zoom.startTy = zoom.ty;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!zoom.dragging) return;
+    zoom.tx = zoom.startTx + (e.clientX - zoom.dragStartX);
+    zoom.ty = zoom.startTy + (e.clientY - zoom.dragStartY);
+    clampPan();
+    applyZoom();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!zoom.dragging) return;
+    zoom.dragging = false;
+    zoomWrap.classList.remove('panning');
+  });
+
+  // Double-click to toggle 2x zoom at cursor
+  zoomWrap.addEventListener('dblclick', (e) => {
+    if (zoom.scale > 1) {
+      resetZoom();
+      showZoomIndicator();
+    } else {
+      zoomAt(2.5, e.clientX, e.clientY);
+    }
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+</script>
+</body>
+</html>
